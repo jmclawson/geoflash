@@ -25,10 +25,21 @@ options_sidebar <- sidebar(
       title = "Load",
       icon = icon("cloud"),
       textInput(
-        "choose_url", "URL of GeoJSON or CSV file with spatial boundaries",
+        "choose_url", "URL of GeoJSON or CSV file with spatial boundaries:",
         value = "https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON"
       ),
-      shiny::actionButton(
+      p("Examples:"),
+      tags$ul(
+        tags$li(actionLink("link_boston", "Boston")),
+        tags$li(actionLink("link_chicago", "Chicago")),
+        tags$li(actionLink("link_nyc", "New York City")),
+        # tags$li(actionLink("link_paris", "Paris")),
+        tags$li(actionLink("link_sf", "San Francisco")),
+      ),
+      radioButtons(
+        "url_type", "File type:",
+        choices = c("(detect)", "geojson", "csv")),
+      actionButton(
         "load_button", "Start mapping",
         icon = icon("route")
       )
@@ -37,7 +48,7 @@ options_sidebar <- sidebar(
       title = "Select",
       icon = icon("table-columns"),
       selectInput(
-        "choose_column", "Select neighborhood column",
+        "choose_column", "Select labelling column",
         choices = c("Choose" = "")
       )
     ),
@@ -45,7 +56,7 @@ options_sidebar <- sidebar(
       title = "Focus",
       icon = icon("magnifying-glass"),
       selectInput(
-        "choose_region", "Select region",
+        "choose_region", "Select grouping",
         choices = c("all"),
         selected = "all"
       )
@@ -57,8 +68,8 @@ options_sidebar <- sidebar(
         "choose_palette", "Choose a palette",
         choices = palette_choices,
         selected = "rtist::hopper"
-      )
-    )
+      ),
+      p("The", a(href="https://emilhvitfeldt.github.io/r-color-palettes/discrete/rtist/hopper/","default palette"), "is derived from Edward Hopper's", em("Nighthawks,"), "on display at the Art Institute of Chicago in Grant Park."))
   ),
   uiOutput("page_explanation")
 )
@@ -70,16 +81,16 @@ page_learn <- nav_panel(
     layout_columns(
       height = "100%",
       value_box(
-        title = "Region",
+        title = "Grouping",
         value = textOutput("learn_region"),
         showcase = icon("map-location-dot")),
       value_box(
-        title = "Neighborhoods",
+        title = "Regions",
         value = textOutput("learn_count"),
         showcase = icon("hashtag"),
         theme = "secondary"),
       value_box(
-        title = "Portion of city",
+        title = "Portion of data",
         value = textOutput("learn_percent"),
         showcase = icon("chart-pie"),
         theme = "secondary")
@@ -156,6 +167,7 @@ server <- function(input, output, session) {
   # Try to load something at start
   app_params <- reactiveValues(
     the_url = "https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON",
+    the_type = "(detect)",
     the_brushed = NA,
     neighborhood = NA,
     attempts = NA,
@@ -172,19 +184,20 @@ server <- function(input, output, session) {
 
   output$page_explanation <- renderUI({
     if (input$active_tab == "Learn") {
-      div(p("Set a region to focus more closely on one part of the city."), p("URLs for other cities (right click and copy URL):", a("Boston",href="https://hub.arcgis.com/api/v3/datasets/2ac87de59a2c47ca8e6d44da598b8832_79/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1"), ", ", a("Chicago", href = "https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON"), ", ", a("New York City", href = "https://data.cityofnewyork.us/api/views/7t3b-ywvw/rows.csv?accessType=DOWNLOAD")))
+      p("Set a grouping to focus more closely on one part of the city.")
     } else if (input$active_tab == "Explore") {
       p("Zoom in and move the map to identify cross streets and areas of interest.")
     } else if (input$active_tab == "Test") {
       div(p("Click and drag your mouse cursor to select ", strong(target_neighborhood()),
-        "as your target. Click the puzzle piece to choose another, or ", shiny::actionLink("refreshlink", "refresh here.")))
+        "as your target. Click the puzzle piece to choose another, or ", shiny::actionLink("refreshlink", "refresh"), "here."))
     } else {
-      p("Check the accuracy of your recent testing. Neighborhoods with deeper colors might need to be studied further.")
+      p("Check the accuracy of your recent testing. Regions with deeper colors probably need to be studied further.")
     }
   })
 
   observeEvent(input$load_button,{
     app_params$the_url = input$choose_url
+    app_params$the_type = input$url_type
   })
 
   observeEvent(input$choose_url,{
@@ -195,14 +208,17 @@ server <- function(input, output, session) {
   })
 
   init_data <- reactive({
-    load_geo_file(app_params$the_url)
+    load_geo_file(app_params$the_url,
+                  type = app_params$the_type)
   })
 
   column_options <- reactive({
     colnames(init_data()) |>
       str_subset("geometry", negate = TRUE) |>
       str_subset("shape_area", negate = TRUE) |>
-      str_subset("shape_len", negate = TRUE)
+      str_subset("shape_len", negate = TRUE) |>
+      str_subset("objectid", negate = TRUE) |>
+      str_subset("BoroCode", negate = TRUE)
   })
 
   observe(
@@ -300,6 +316,32 @@ server <- function(input, output, session) {
     ready_data() |>
       pull(neighborhood) |>
       sample(1)
+  })
+
+  observeEvent(input$link_chicago, {
+    updateTextInput(session, "choose_url",
+                    value = "https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON")
+  })
+
+  observeEvent(input$link_boston, {
+    updateTextInput(session, "choose_url",
+                    value = "https://hub.arcgis.com/api/v3/datasets/2ac87de59a2c47ca8e6d44da598b8832_79/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1")
+  })
+
+  observeEvent(input$link_nyc, {
+    updateTextInput(session, "choose_url",
+                    value = "https://data.cityofnewyork.us/api/views/7t3b-ywvw/rows.csv?accessType=DOWNLOAD")
+  })
+
+  observeEvent(input$link_sf, {
+    updateTextInput(session, "choose_url",
+                    value = "https://data.sfgov.org/api/views/mw29-m2za/rows.csv?date=20241014&accessType=DOWNLOAD")
+  })
+
+  observeEvent(input$link_paris, {
+    updateTextInput(session, "choose_url",
+                    value = "https://www.data.gouv.fr/fr/datasets/r/4765fe48-35fd-4536-b029-4727380ce23c")
+    updateRadioButtons(session, "url_type", selected = "geojson")
   })
 
   observeEvent(
@@ -445,7 +487,7 @@ server <- function(input, output, session) {
   )
 
   review_map <- reactive(
-    ready_data() |>
+    data() |>
       filter(neighborhood %in% the_tally()$neighborhood) |>
       left_join(
         the_tally() |>

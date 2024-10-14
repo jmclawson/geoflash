@@ -4,7 +4,7 @@ library(leaflet)
 
 # csv url for testing: https://data.cityofnewyork.us/api/views/7t3b-ywvw/rows.csv?accessType=DOWNLOAD
 load_geo_file <- function(url = "https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON", type = NULL) {
-  if (is.null(type)) {
+  if (is.null(type) | type == "(detect)") {
     if (str_detect(tolower(url), "geojson")) {
       type <- "geojson"
     } else if (str_detect(tolower(url), "csv")) {
@@ -42,7 +42,8 @@ load_geo_file <- function(url = "https://data.cityofchicago.org/api/geospatial/b
       rename(geometry = colnames(result)["sfc_MULTIPOLYGON" == unlist(map(result, class))])
   }
 
-  return(result)
+  result |>
+    st_make_valid()
 }
 
 choose_label <- function(df, label = pri_neigh) {
@@ -83,26 +84,25 @@ add_colors <- function(df) {
 
   df |>
     mutate(fill_colors = geo_colors) |>
-    optimize_chicago_colors()
+    optimize_neighborhood_colors()
 }
 
-optimize_chicago_colors <- function(df) {
+optimize_neighborhood_colors <- function(df) {
   lincoln_sq <- df |>
     filter(neighborhood == "Lincoln Square") |>
     pull(fill_colors) |>
     {\(x) ifelse(length(x) == 0, 1, x)}()
 
-  # return(df)
-
   df |>
     mutate(
       # optimize bad / unideal solutions
       fill_colors = case_when(
-        neighborhood %in% c("Chinatown", "Mckinley Park","McKinley Park", "Kenwood", "Englewood", "Printers Row", "Oakland, Kenwood", "Woodlawn", "Museum Campus", "Armour Square, Chinatown") ~ 4, # dark
+        neighborhood %in% c("Chinatown", "Mckinley Park","McKinley Park", "Kenwood", "Englewood", "Printers Row", "Oakland, Kenwood", "Woodlawn", "Museum Campus", "Armour Square, Chinatown", "Manhattan", "East Boston") ~ 4, # dark
         str_detect(tolower(neighborhood),"mckinley park") ~ 4,
         neighborhood == "Wrigleyville" ~ lincoln_sq,
-        neighborhood == "Loop" ~ 1, # red
-        neighborhood %in% c("Millenium Park", "Near South Side") ~ 3, # green
+        neighborhood %in% c("Loop", "Brooklyn") ~ 1, # red
+        neighborhood %in% c("Staten Island") ~ 2, # yellow
+        neighborhood %in% c("Millenium Park", "Near South Side", "Queens") ~ 3, # green
         TRUE ~ fill_colors
       )
     )
@@ -315,7 +315,8 @@ get_named_intersects <- function(df) {
   data.frame(
     state = the_df$abbr,
     county = the_df$county) |>
-    distinct()
+    distinct() |>
+    drop_na()
 }
 
 get_roads <- function(df) {
